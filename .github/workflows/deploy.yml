@@ -58,8 +58,7 @@ jobs:
             --region ${{ env.GCP_REGION }} \
             --allow-unauthenticated \
             --port 8000 \
-            --set-env-vars "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},USE_DATABASE=true,DATABASE_URL=${{ secrets.DATABASE_URL }}" \
-            --add-cloudsql-instances ${{ secrets.CLOUD_SQL_CONNECTION_NAME }} \
+            --set-env-vars "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},USE_DATABASE=false" \
             --memory 1Gi \
             --cpu 1 \
             --max-instances 10 \
