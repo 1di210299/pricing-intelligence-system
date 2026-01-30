@@ -58,9 +58,10 @@ jobs:
             --region ${{ env.GCP_REGION }} \
             --allow-unauthenticated \
             --port 8000 \
-            --set-env-vars "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},USE_DATABASE=false" \
-            --memory 1Gi \
-            --cpu 1 \
+            --set-env-vars "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},USE_DATABASE=false,USE_SCRAPFLY=true" \
+            --update-secrets "SCRAPFLY_API_KEY=scrapfly-api-key:latest" \
+            --memory 2Gi \
+            --cpu 2 \
             --max-instances 10 \
             --min-instances 0 \
             --timeout 300
