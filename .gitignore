@@ -52,3 +52,4 @@ htmlcov/
 data/*.csv
 !data/sample_internal_data.csv
 !data/thrift_sales_12_weeks_with_subcategory.csv
+models/*.pkl

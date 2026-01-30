@@ -1,10 +1,12 @@
-"""Pricing recommendation engine."""
-from typing import Optional, Tuple
+"""Pricing recommendation engine with ML hybrid approach."""
+from typing import Optional, Dict, Any
+from pathlib import Path
 from app.models.pricing import (
     InternalData, 
     MarketData, 
     PriceRecommendationResponse
 )
+from app.ml.model import HybridPricingModel
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -12,27 +14,37 @@ logger = get_logger(__name__)
 
 class PricingEngine:
     """
-    Engine for generating pricing recommendations.
+    Hybrid ML + Rule-based pricing engine.
     
-    Combines market data and internal sales data to recommend optimal prices.
+    Combines ML predictions with rule-based fallbacks for optimal pricing.
     """
     
-    # Thresholds for decision-making
-    HIGH_SELL_THROUGH_THRESHOLD = 0.7
-    STALE_INVENTORY_DAYS = 60
-    LOW_MARKET_SAMPLE_SIZE = 5
-    PRICE_VARIANCE_THRESHOLD = 0.30  # 30% difference
-    
-    # Category-specific margin adjustments
-    CATEGORY_MARGINS = {
-        "Electronics": 0.15,      # 15% margin
-        "Clothing": 0.40,         # 40% margin
-        "Books": 0.30,            # 30% margin
-        "Toys": 0.35,             # 35% margin
-        "Home & Garden": 0.25,    # 25% margin
-        "Sports": 0.30,           # 30% margin
-        "Default": 0.25           # Default 25% margin
-    }
+    def __init__(self, model_path: Optional[str] = None):
+        """
+        Initialize the pricing engine.
+        
+        Args:
+            model_path: Path to trained ML model (optional)
+        """
+        self.model = None
+        self.use_ml = False
+        
+        # Try to load ML model if path provided or default exists
+        if model_path is None:
+            model_path = "models/pricing_model.pkl"
+        
+        model_file = Path(model_path)
+        if model_file.exists():
+            try:
+                self.model = HybridPricingModel.load_model(str(model_file))
+                self.use_ml = True
+                logger.info(f"✅ Loaded ML model from {model_path}")
+            except Exception as e:
+                logger.warning(f"Failed to load ML model: {e}. Using rule-based fallback.")
+                self.use_ml = False
+        else:
+            logger.info(f"ML model not found at {model_path}. Using rule-based approach.")
+
     
     def generate_recommendation(
         self,
@@ -41,7 +53,7 @@ class PricingEngine:
         internal_data: Optional[InternalData]
     ) -> PriceRecommendationResponse:
         """
-        Generate a pricing recommendation.
+        Generate a pricing recommendation using ML or rules.
         
         Args:
             upc: UPC code
@@ -56,6 +68,40 @@ class PricingEngine:
         # Check if we have any data
         if not market_data and not internal_data:
             return self._no_data_response(upc)
+        
+        # Use ML model if available
+        if self.use_ml and self.model:
+            try:
+                result = self.model.predict(market_data, internal_data)
+                
+                # Convert to response format
+                return PriceRecommendationResponse(
+                    upc=upc,
+                    recommended_price=result["recommended_price"],
+                    internal_vs_market_weighting=result.get("internal_weight", 0.5),
+                    confidence_score=int(result["confidence"] * 100),
+                    rationale=result["rationale"],
+                    market_data=market_data,
+                    internal_data=internal_data,
+                    warnings=result.get("warnings", []),
+                    feature_importance=result.get("feature_importance"),
+                    prediction_method=result.get("method", "unknown")
+                )
+            except Exception as e:
+                logger.error(f"ML prediction failed: {e}. Falling back to rules.")
+                warnings.append(f"ML prediction failed: {str(e)}")
+        
+        # Fallback to rule-based approach
+        return self._rule_based_recommendation(upc, market_data, internal_data, warnings)
+    
+    def _rule_based_recommendation(
+        self,
+        upc: str,
+        market_data: Optional[MarketData],
+        internal_data: Optional[InternalData],
+        warnings: list[str]
+    ) -> PriceRecommendationResponse:
+        """Generate recommendation using simple rules."""
         
         # Market-only scenario
         if market_data and not internal_data:
@@ -78,7 +124,8 @@ class PricingEngine:
             internal_vs_market_weighting=0.5,
             confidence_score=0,
             rationale="No market or internal data available. Cannot generate recommendation.",
-            warnings=["No data available for this UPC"]
+            warnings=["No data available for this UPC"],
+            prediction_method="no_data"
         )
     
     def _market_only_recommendation(
@@ -90,7 +137,8 @@ class PricingEngine:
         """Generate recommendation based only on market data."""
         
         # Check if we have enough market data
-        if market_data.sample_size < self.LOW_MARKET_SAMPLE_SIZE:
+        LOW_MARKET_SAMPLE_SIZE = 5
+        if market_data.sample_size < LOW_MARKET_SAMPLE_SIZE:
             warnings.append(
                 f"Low market sample size ({market_data.sample_size}). "
                 "Recommendation may not be reliable."
@@ -117,7 +165,8 @@ class PricingEngine:
             confidence_score=confidence,
             rationale=rationale,
             market_data=market_data,
-            warnings=warnings
+            warnings=warnings,
+            prediction_method="market_only"
         )
     
     def _internal_only_recommendation(
@@ -130,17 +179,20 @@ class PricingEngine:
         
         warnings.append("No market data available. Using internal data only.")
         
+        HIGH_SELL_THROUGH_THRESHOLD = 0.7
+        STALE_INVENTORY_DAYS = 60
+        
         recommended_price = internal_data.internal_price
         rationale_parts = [f"Based on internal data only (${internal_data.internal_price:.2f})."]
         
         # Adjust based on performance metrics
-        if internal_data.sell_through_rate >= self.HIGH_SELL_THROUGH_THRESHOLD:
+        if internal_data.sell_through_rate >= HIGH_SELL_THROUGH_THRESHOLD:
             rationale_parts.append(
                 f"High sell-through rate ({internal_data.sell_through_rate:.2f}) "
                 "indicates current price is working well."
             )
             confidence = 70
-        elif internal_data.days_on_shelf > self.STALE_INVENTORY_DAYS:
+        elif internal_data.days_on_shelf > STALE_INVENTORY_DAYS:
             # Suggest price reduction for stale inventory
             reduction_factor = 0.90  # 10% reduction
             recommended_price = internal_data.internal_price * reduction_factor
@@ -163,7 +215,8 @@ class PricingEngine:
             confidence_score=confidence,
             rationale=" ".join(rationale_parts),
             internal_data=internal_data,
-            warnings=warnings
+            warnings=warnings,
+            prediction_method="internal_only"
         )
     
     def _combined_recommendation(
@@ -173,42 +226,64 @@ class PricingEngine:
         internal_data: InternalData,
         warnings: list[str]
     ) -> PriceRecommendationResponse:
-        """Generate recommendation combining market and internal data."""
+        """Generate recommendation combining market and internal data using simple rules."""
         
-        # Determine weighting and confidence
-        weighting, confidence = self._calculate_weighting_and_confidence(
-            market_data, internal_data, warnings
-        )
+        HIGH_SELL_THROUGH_THRESHOLD = 0.7
+        STALE_INVENTORY_DAYS = 60
+        LOW_MARKET_SAMPLE_SIZE = 5
+        
+        # Simple weighting logic
+        weighting = 0.5  # Start with equal weight
+        confidence = 50
+        
+        # Adjust based on sell-through
+        if internal_data.sell_through_rate >= HIGH_SELL_THROUGH_THRESHOLD:
+            weighting += 0.20
+            confidence += 15
+        elif internal_data.sell_through_rate < 0.3:
+            weighting -= 0.15
+            confidence -= 5
+        
+        # Adjust based on inventory age
+        if internal_data.days_on_shelf > STALE_INVENTORY_DAYS:
+            weighting -= 0.15
+            confidence -= 10
+        elif internal_data.days_on_shelf < 30:
+            weighting += 0.05
+            confidence += 5
+        
+        # Adjust based on market sample size
+        if market_data.sample_size < LOW_MARKET_SAMPLE_SIZE:
+            weighting += 0.20
+            confidence -= 15
+            warnings.append(f"Low market sample size ({market_data.sample_size}).")
+        elif market_data.sample_size > 20:
+            weighting -= 0.10
+            confidence += 10
+        
+        # Clamp values
+        weighting = max(0.0, min(1.0, weighting))
+        confidence = max(0, min(100, confidence))
         
         # Calculate recommended price
         market_price = market_data.median_price or market_data.average_price or 0.0
         internal_price = internal_data.internal_price
         
-        # Weighted average
-        recommended_price = (
-            (weighting * internal_price) + 
-            ((1 - weighting) * market_price)
-        )
-        
-        # Apply category-specific adjustments
-        recommended_price = self._apply_category_adjustment(
-            recommended_price, internal_data.category
-        )
-        
-        # Check for significant price variance
-        if market_price > 0:
-            variance = abs(internal_price - market_price) / market_price
-            if variance > self.PRICE_VARIANCE_THRESHOLD:
-                warnings.append(
-                    f"Large price difference detected: internal (${internal_price:.2f}) "
-                    f"vs market (${market_price:.2f}). Variance: {variance:.1%}. "
-                    "Please review."
-                )
+        recommended_price = (weighting * internal_price) + ((1 - weighting) * market_price)
         
         # Build rationale
-        rationale = self._build_rationale(
-            weighting, confidence, market_data, internal_data, 
-            market_price, recommended_price
+        if weighting > 0.65:
+            weight_desc = f"Strong emphasis on internal data ({weighting:.0%} weight)"
+        elif weighting < 0.35:
+            weight_desc = f"Strong emphasis on market data ({1-weighting:.0%} weight)"
+        else:
+            weight_desc = f"Balanced: {weighting:.0%} internal, {1-weighting:.0%} market"
+        
+        rationale = (
+            f"{weight_desc}. "
+            f"Internal: ${internal_price:.2f}, sell-through: {internal_data.sell_through_rate:.2f}. "
+            f"Market: median ${market_price:.2f} from {market_data.sample_size} listings. "
+            f"Recommended: ${recommended_price:.2f}."
         )
         
         return PriceRecommendationResponse(
@@ -219,141 +294,6 @@ class PricingEngine:
             rationale=rationale,
             market_data=market_data,
             internal_data=internal_data,
-            warnings=warnings
+            warnings=warnings,
+            prediction_method="rule_based"
         )
-    
-    def _calculate_weighting_and_confidence(
-        self,
-        market_data: MarketData,
-        internal_data: InternalData,
-        warnings: list[str]
-    ) -> Tuple[float, int]:
-        """
-        Calculate the weighting between internal and market data.
-        
-        Returns:
-            Tuple of (weighting, confidence_score)
-            weighting: 0-1, where 1 = all internal, 0 = all market
-        """
-        weighting = 0.5  # Start with equal weight
-        confidence = 50
-        
-        # Factor 1: Sell-through rate
-        if internal_data.sell_through_rate >= self.HIGH_SELL_THROUGH_THRESHOLD:
-            # High sell-through → trust internal price more
-            weighting += 0.20
-            confidence += 15
-            logger.debug(f"High sell-through: +0.20 to internal weighting")
-        elif internal_data.sell_through_rate < 0.3:
-            # Low sell-through → trust market more
-            weighting -= 0.15
-            confidence -= 5
-            logger.debug(f"Low sell-through: -0.15 to internal weighting")
-        
-        # Factor 2: Days on shelf
-        if internal_data.days_on_shelf > self.STALE_INVENTORY_DAYS:
-            # Stale inventory → trust market more (need to move product)
-            weighting -= 0.15
-            confidence -= 10
-            logger.debug(f"Stale inventory: -0.15 to internal weighting")
-        elif internal_data.days_on_shelf < 30:
-            # Fresh inventory → trust internal slightly more
-            weighting += 0.05
-            confidence += 5
-            logger.debug(f"Fresh inventory: +0.05 to internal weighting")
-        
-        # Factor 3: Market sample size
-        if market_data.sample_size < self.LOW_MARKET_SAMPLE_SIZE:
-            # Low market data → trust internal more
-            weighting += 0.20
-            confidence -= 15
-            warnings.append(
-                f"Low market sample size ({market_data.sample_size}). "
-                "Giving more weight to internal data."
-            )
-            logger.debug(f"Low market sample: +0.20 to internal weighting")
-        elif market_data.sample_size > 20:
-            # High market data → trust market more
-            weighting -= 0.10
-            confidence += 10
-            logger.debug(f"High market sample: -0.10 to internal weighting")
-        
-        # Ensure weighting is between 0 and 1
-        weighting = max(0.0, min(1.0, weighting))
-        
-        # Ensure confidence is between 0 and 100
-        confidence = max(0, min(100, confidence))
-        
-        return weighting, confidence
-    
-    def _apply_category_adjustment(
-        self,
-        price: float,
-        category: str
-    ) -> float:
-        """
-        Apply category-specific margin adjustments.
-        
-        Args:
-            price: Base price
-            category: Product category
-            
-        Returns:
-            Adjusted price
-        """
-        # Get margin for category (or default)
-        margin = self.CATEGORY_MARGINS.get(category, self.CATEGORY_MARGINS["Default"])
-        
-        # This is a simplified adjustment
-        # In production, you might have more sophisticated category logic
-        logger.debug(f"Category {category}: margin={margin}")
-        
-        return price
-    
-    def _build_rationale(
-        self,
-        weighting: float,
-        confidence: int,
-        market_data: MarketData,
-        internal_data: InternalData,
-        market_price: float,
-        recommended_price: float
-    ) -> str:
-        """Build human-readable rationale for the recommendation."""
-        
-        parts = []
-        
-        # Weighting explanation
-        if weighting > 0.65:
-            parts.append(
-                f"Strong emphasis on internal data ({weighting:.0%} weight) "
-                f"due to good performance metrics."
-            )
-        elif weighting < 0.35:
-            parts.append(
-                f"Strong emphasis on market data ({1-weighting:.0%} weight) "
-                f"due to performance concerns or strong market signals."
-            )
-        else:
-            parts.append(
-                f"Balanced approach: {weighting:.0%} internal, "
-                f"{1-weighting:.0%} market data."
-            )
-        
-        # Performance metrics
-        parts.append(
-            f"Internal: ${internal_data.internal_price:.2f}, "
-            f"sell-through: {internal_data.sell_through_rate:.2f}, "
-            f"{internal_data.days_on_shelf} days on shelf."
-        )
-        
-        # Market data
-        parts.append(
-            f"Market: median ${market_price:.2f} "
-            f"from {market_data.sample_size} listings."
-        )
-        
-        # Recommendation
-        parts.append(f"Recommended: ${recommended_price:.2f}.")
-        
-        return " ".join(parts)

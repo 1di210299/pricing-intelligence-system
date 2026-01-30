@@ -78,6 +78,8 @@ class PriceRecommendationResponse(BaseModel):
     market_data: Optional[MarketData] = Field(None, description="Market data used")
     internal_data: Optional[InternalData] = Field(None, description="Internal data used")
     warnings: list[str] = Field(default_factory=list, description="Any warnings or alerts")
+    feature_importance: Optional[dict] = Field(None, description="ML feature importance scores")
+    prediction_method: str = Field(default="rule_based", description="Method used: ml, rule_based, or hybrid")
     
     @field_validator("recommended_price")
     @classmethod

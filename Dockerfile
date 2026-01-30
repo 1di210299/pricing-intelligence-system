@@ -18,6 +18,13 @@ COPY scripts/ ./scripts/
 COPY data/thrift_sales_12_weeks_with_subcategory.csv ./data/thrift_sales_12_weeks_with_subcategory.csv
 COPY data/thrift_sales_12_weeks_with_subcategory.csv ./thrift_sales_12_weeks_with_subcategory.csv
 
+# Download pre-trained ML model from GCS (public bucket)
+RUN mkdir -p models && \
+    apt-get update && apt-get install -y curl && \
+    curl -o models/pricing_model.pkl https://storage.googleapis.com/pricing-intelligence-models/pricing_model.pkl && \
+    echo "✅ ML model downloaded successfully" && \
+    rm -rf /var/lib/apt/lists/*
+
 # Create non-root user
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser

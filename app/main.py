@@ -63,11 +63,27 @@ async def lifespan(app: FastAPI):
             internal_data_processor = InternalDataProcessor(db_client=db_client)
             logger.info("Internal data processor initialized with PostgreSQL")
         else:
-            # Use CSV
-            internal_data_processor = InternalDataProcessor(
-                csv_path="thrift_sales_12_weeks_with_subcategory.csv"
-            )
-            logger.info("Internal data processor initialized with CSV")
+            # Use CSV - try multiple paths
+            csv_paths = [
+                "thrift_sales_12_weeks_with_subcategory.csv",
+                "data/thrift_sales_12_weeks_with_subcategory.csv",
+                "/app/thrift_sales_12_weeks_with_subcategory.csv"
+            ]
+            
+            csv_loaded = False
+            for csv_path in csv_paths:
+                try:
+                    from pathlib import Path
+                    if Path(csv_path).exists():
+                        internal_data_processor = InternalDataProcessor(csv_path=csv_path)
+                        logger.info(f"Internal data processor initialized with CSV: {csv_path}")
+                        csv_loaded = True
+                        break
+                except Exception as csv_error:
+                    logger.debug(f"Failed to load CSV from {csv_path}: {csv_error}")
+            
+            if not csv_loaded:
+                raise FileNotFoundError("Could not find CSV file in any expected location")
     except Exception as e:
         logger.warning(f"Could not load internal data: {str(e)}")
         internal_data_processor = InternalDataProcessor()
@@ -192,6 +208,21 @@ async def get_price_recommendation(
             market_data=market_data,
             internal_data=internal_data
         )
+        
+        # Convert numpy types to Python native types for JSON serialization
+        if hasattr(recommendation.recommended_price, 'item'):
+            recommendation.recommended_price = float(recommendation.recommended_price)
+        if hasattr(recommendation.confidence_score, 'item'):
+            recommendation.confidence_score = int(recommendation.confidence_score)
+        if hasattr(recommendation.internal_vs_market_weighting, 'item'):
+            recommendation.internal_vs_market_weighting = float(recommendation.internal_vs_market_weighting)
+        
+        # Convert feature_importance if present
+        if recommendation.feature_importance:
+            recommendation.feature_importance = {
+                k: float(v) if hasattr(v, 'item') else v 
+                for k, v in recommendation.feature_importance.items()
+            }
         
         # Log the decision for audit
         log_pricing_decision(recommendation)
