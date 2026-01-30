@@ -17,7 +17,6 @@ from app.models.pricing import (
     MarketData
 )
 from app.services.upc_validator import UPCValidator, UPCValidationError
-from app.services.ebay_client import eBayClient, eBayAPIError
 from app.services.internal_data import InternalDataProcessor
 from app.services.pricing_engine import PricingEngine
 from app.cache.cache_manager import cache
@@ -32,14 +31,13 @@ if settings.use_database:
 
 # Global instances
 internal_data_processor: Optional[InternalDataProcessor] = None
-ebay_client: Optional[eBayClient] = None
 pricing_engine: Optional[PricingEngine] = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
-    global internal_data_processor, ebay_client, pricing_engine
+    global internal_data_processor, pricing_engine
     
     # Startup
     logger.info("Starting Price Intelligence API...")
@@ -51,9 +49,7 @@ async def lifespan(app: FastAPI):
         stats = await db_client.get_statistics()
         logger.info(f"Database statistics: {stats}")
     
-    # Initialize services (lazy loading - browser starts on first request)
-    ebay_client = eBayClient(headless=False)  # Browser will start on first search
-    
+    # Initialize pricing engine (includes eBay scraper)
     pricing_engine = PricingEngine()
     
     # Try to load internal data
@@ -250,7 +246,7 @@ async def get_cached_market_data(upc: str) -> Optional[MarketData]:
     Get market data with caching.
     
     Args:
-        upc: UPC code
+        upc: UPC code / search term
         
     Returns:
         MarketData or None if not available
@@ -260,16 +256,16 @@ async def get_cached_market_data(upc: str) -> Optional[MarketData]:
     cached_data = cache.get(cache_key)
     
     if cached_data:
-        logger.info(f"Using cached market data for UPC: {upc}")
+        logger.info(f"Using cached market data for: {upc}")
         try:
             return MarketData(**cached_data)
         except Exception as e:
             logger.warning(f"Error deserializing cached data: {str(e)}")
             # Continue to fetch fresh data
     
-    # Fetch from eBay
+    # Fetch from eBay using Playwright/ScrapFly
     try:
-        market_data = await ebay_client.get_market_pricing(upc)
+        market_data = await pricing_engine.ebay_client.get_market_pricing(upc)
         
         # Cache the result (only if we got meaningful data)
         if market_data and market_data.sample_size > 0:

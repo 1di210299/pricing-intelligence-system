@@ -7,9 +7,12 @@ from app.models.pricing import (
     PriceRecommendationResponse
 )
 from app.ml.model import HybridPricingModel
+from app.services.ebay_scraper import eBayScrapFlyClient, eBayPlaywrightClient
+from app.config import Settings
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
+settings = Settings()
 
 
 class PricingEngine:
@@ -28,6 +31,14 @@ class PricingEngine:
         """
         self.model = None
         self.use_ml = False
+        
+        # Initialize eBay scraper based on config
+        if settings.use_scrapfly and settings.scrapfly_api_key:
+            logger.info("Using ScrapFly for eBay scraping")
+            self.ebay_client = eBayScrapFlyClient(scrapfly_api_key=settings.scrapfly_api_key)
+        else:
+            logger.info("Using Playwright for eBay scraping (no ScrapFly)")
+            self.ebay_client = eBayPlaywrightClient()
         
         # Try to load ML model if path provided or default exists
         if model_path is None:

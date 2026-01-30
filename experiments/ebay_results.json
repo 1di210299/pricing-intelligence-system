@@ -1,0 +1,11 @@
+{
+  "count": 0,
+  "median_price": null,
+  "average_price": null,
+  "min_price": null,
+  "max_price": null,
+  "sold_count": 0,
+  "sold_median": null,
+  "sold_average": null,
+  "listings": []
+}

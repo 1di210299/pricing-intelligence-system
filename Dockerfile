@@ -2,15 +2,21 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies for Playwright
 RUN apt-get update && apt-get install -y \
     gcc \
     postgresql-client \
+    curl \
+    wget \
+    gnupg \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Install Playwright browsers
+RUN playwright install --with-deps chromium
 
 # Copy application code
 COPY app/ ./app/
@@ -20,12 +26,10 @@ COPY data/thrift_sales_12_weeks_with_subcategory.csv ./thrift_sales_12_weeks_wit
 
 # Download pre-trained ML model from GCS (public bucket)
 RUN mkdir -p models && \
-    apt-get update && apt-get install -y curl && \
     curl -o models/pricing_model.pkl https://storage.googleapis.com/pricing-intelligence-models/pricing_model.pkl && \
-    echo "✅ ML model downloaded successfully" && \
-    rm -rf /var/lib/apt/lists/*
+    echo "✅ ML model downloaded successfully"
 
-# Create non-root user
+# Create non-root user (but Playwright needs some permissions)
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser
 

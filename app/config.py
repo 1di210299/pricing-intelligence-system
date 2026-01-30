@@ -9,6 +9,10 @@ class Settings(BaseSettings):
     # OpenAI Configuration
     openai_api_key: str = ""
     
+    # ScrapFly Configuration
+    scrapfly_api_key: str = ""
+    use_scrapfly: bool = True  # Use ScrapFly for production, Playwright for local
+    
     # Database Configuration
     database_url: str = ""
     use_database: bool = False  # Set to True to use PostgreSQL instead of CSV
