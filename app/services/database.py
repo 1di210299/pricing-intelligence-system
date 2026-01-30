@@ -2,7 +2,11 @@
 import asyncpg
 from typing import List, Dict, Optional
 from app.config import settings
-from app.utils.logger import logger
+from app.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+logger = get_logger(__name__)
 
 
 class DatabaseClient:
