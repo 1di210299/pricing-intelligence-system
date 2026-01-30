@@ -7,7 +7,7 @@ import asyncio
 
 # Add parent directory to path to import ebay_agent_4
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from ebay_agent_4 import EbayPricingAgent
+from scripts.ebay_agent_4 import EbayPricingAgent
 
 from app.models.pricing import MarketData
 from app.utils.logger import get_logger

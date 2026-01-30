@@ -14,6 +14,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY app/ ./app/
+COPY scripts/ ./scripts/
+COPY data/thrift_sales_12_weeks_with_subcategory.csv ./data/thrift_sales_12_weeks_with_subcategory.csv
 COPY data/thrift_sales_12_weeks_with_subcategory.csv ./thrift_sales_12_weeks_with_subcategory.csv
 
 # Create non-root user

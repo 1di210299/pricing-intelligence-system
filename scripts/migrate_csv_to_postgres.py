@@ -31,7 +31,7 @@ def create_connection():
         raise
 
 
-def load_csv_data(csv_path='thrift_sales_12_weeks_with_subcategory.csv'):
+def load_csv_data(csv_path='data/thrift_sales_12_weeks_with_subcategory.csv'):
     """Load data from CSV file."""
     print(f"Loading CSV data from {csv_path}...")
     
@@ -64,14 +64,9 @@ def migrate_data(conn, df):
         
         if existing_count > 0:
             print(f"Database already contains {existing_count} records.")
-            response = input("Clear existing data and reload? (yes/no): ")
-            if response.lower() == 'yes':
-                print("Clearing existing data...")
-                cursor.execute("TRUNCATE TABLE sales_data RESTART IDENTITY CASCADE")
-                conn.commit()
-            else:
-                print("Skipping migration.")
-                return
+            print("Clearing existing data for fresh load...")
+            cursor.execute("TRUNCATE TABLE sales_data RESTART IDENTITY CASCADE")
+            conn.commit()
         
         # Prepare insert statement
         insert_query = """

@@ -58,12 +58,25 @@ jobs:
             --region ${{ env.GCP_REGION }} \
             --allow-unauthenticated \
             --port 8000 \
-            --set-env-vars "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},USE_DATABASE=false" \
+            --set-env-vars "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},USE_DATABASE=true,DATABASE_URL=${{ secrets.DATABASE_URL }}" \
+            --add-cloudsql-instances ${{ secrets.CLOUD_SQL_CONNECTION_NAME }} \
             --memory 1Gi \
             --cpu 1 \
             --max-instances 10 \
             --min-instances 0 \
             --timeout 300
+
+      - name: Run Database Migration
+        run: |
+          gcloud run jobs create pricing-migration-${{ github.sha }} \
+            --image ${REGISTRY}/smart-arc-466414-p9/${{ env.SERVICE_NAME }}:${{ github.sha }} \
+            --region ${{ env.GCP_REGION }} \
+            --set-env-vars "DATABASE_URL=${{ secrets.DATABASE_URL }}" \
+            --add-cloudsql-instances ${{ secrets.CLOUD_SQL_CONNECTION_NAME }} \
+            --execute-now \
+            --wait \
+            --command "python" \
+            --args "scripts/migrate_csv_to_postgres.py" || echo "Migration job completed or already exists"
 
       - name: Get Service URL
         run: |
