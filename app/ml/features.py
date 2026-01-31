@@ -110,24 +110,50 @@ class FeatureEngineer:
         return features
     
     def _calculate_confidence(self, features: Dict[str, float]) -> float:
-        """Calculate confidence score for the features."""
+        """
+        Calculate realistic confidence score based on data quality.
+        
+        Never returns 100% - there's always some uncertainty in pricing.
+        Factors: sample size, price variance, data freshness, match quality.
+        """
         confidence = 0.0
         
-        # Market data confidence
+        # Market data confidence (max 0.45)
         if features['has_market_data'] == 1.0:
-            market_conf = min(features['market_sample_size'] / 20.0, 0.5)
+            # Base confidence from sample size (diminishing returns)
+            sample_size = features['market_sample_size']
+            market_conf = 0.45 * (1 - np.exp(-sample_size / 15.0))
+            
+            # Penalty for high price variance (unstable market)
+            if features['market_median_price'] > 0:
+                price_cv = features['market_price_std'] / features['market_median_price']
+                if price_cv > 0.5:  # Coefficient of variation > 50%
+                    market_conf *= 0.7
+                elif price_cv > 0.3:
+                    market_conf *= 0.85
+            
             confidence += market_conf
         
-        # Internal data confidence
+        # Internal data confidence (max 0.45)
         if features['has_internal_data'] == 1.0:
-            internal_conf = min(features['internal_sample_size'] / 100.0, 0.5)
+            # Base confidence from sample size
+            sample_size = features['internal_sample_size']
+            internal_conf = 0.45 * (1 - np.exp(-sample_size / 50.0))
+            
+            # Adjust based on sell-through rate quality
+            str_rate = features['sell_through_rate']
+            if str_rate > 0.8 or str_rate < 0.2:
+                # Extreme sell-through rates are less predictive
+                internal_conf *= 0.9
+            
             confidence += internal_conf
         
-        # Bonus for having both
+        # Small bonus for having both sources (max 0.10)
         if features['has_market_data'] == 1.0 and features['has_internal_data'] == 1.0:
-            confidence += 0.2
+            confidence += 0.10
         
-        return min(confidence, 1.0)
+        # Cap at 95% - never claim 100% certainty
+        return min(confidence, 0.95)
     
     def get_feature_names(self) -> list:
         """Get ordered list of feature names."""

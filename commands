@@ -1,0 +1,5 @@
+curl -X POST "https://pricing-intelligence-106397905288.us-central1.run.app/price-recommendation" \
+  -H "Content-Type: application/json" \
+  -d '{"upc": "Nike Air Jordan 1"}'
+
+https://pricing-intelligence-frontend-ndgbgth7la-uc.a.run.app
