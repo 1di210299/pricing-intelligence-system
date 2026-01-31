@@ -90,9 +90,9 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("Shutting down Price Intelligence API...")
-    if ebay_client:
-        await ebay_client.close_session()
-    logger.info("eBay session closed")
+    if pricing_engine and hasattr(pricing_engine.ebay_client, 'close_session'):
+        await pricing_engine.ebay_client.close_session()
+    logger.info("Cleanup completed")
     
     if settings.use_database:
         await db_client.disconnect()

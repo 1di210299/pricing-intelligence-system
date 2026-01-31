@@ -122,15 +122,23 @@ class FeatureEngineer:
         if features['has_market_data'] == 1.0:
             # Base confidence from sample size (diminishing returns)
             sample_size = features['market_sample_size']
-            market_conf = 0.45 * (1 - np.exp(-sample_size / 15.0))
+            market_conf = 0.45 * (1 - np.exp(-sample_size / 20.0))
             
             # Penalty for high price variance (unstable market)
             if features['market_median_price'] > 0:
                 price_cv = features['market_price_std'] / features['market_median_price']
-                if price_cv > 0.5:  # Coefficient of variation > 50%
-                    market_conf *= 0.7
-                elif price_cv > 0.3:
-                    market_conf *= 0.85
+                if price_cv > 0.6:  # Very unstable
+                    market_conf *= 0.6
+                elif price_cv > 0.4:  # Moderately unstable
+                    market_conf *= 0.75
+                elif price_cv > 0.25:  # Slightly unstable
+                    market_conf *= 0.9
+            
+            # Penalty for small sample size
+            if sample_size < 10:
+                market_conf *= 0.7
+            elif sample_size < 20:
+                market_conf *= 0.85
             
             confidence += market_conf
         
@@ -138,19 +146,29 @@ class FeatureEngineer:
         if features['has_internal_data'] == 1.0:
             # Base confidence from sample size
             sample_size = features['internal_sample_size']
-            internal_conf = 0.45 * (1 - np.exp(-sample_size / 50.0))
+            internal_conf = 0.45 * (1 - np.exp(-sample_size / 80.0))
             
             # Adjust based on sell-through rate quality
             str_rate = features['sell_through_rate']
-            if str_rate > 0.8 or str_rate < 0.2:
+            if str_rate > 0.85 or str_rate < 0.15:
                 # Extreme sell-through rates are less predictive
+                internal_conf *= 0.85
+            
+            # Days on shelf factor
+            if features['days_on_shelf'] > 90:
+                # Old data is less reliable
                 internal_conf *= 0.9
             
             confidence += internal_conf
         
-        # Small bonus for having both sources (max 0.10)
+        # Bonus for having both sources (max 0.10)
         if features['has_market_data'] == 1.0 and features['has_internal_data'] == 1.0:
-            confidence += 0.10
+            # But only if they somewhat agree
+            if features['price_vs_market_ratio'] > 0.5 and features['price_vs_market_ratio'] < 2.0:
+                confidence += 0.10
+            else:
+                # Sources disagree significantly
+                confidence += 0.03
         
         # Cap at 95% - never claim 100% certainty
         return min(confidence, 0.95)
